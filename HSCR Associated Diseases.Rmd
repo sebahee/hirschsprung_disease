@@ -1,0 +1,201 @@
+---
+title: "HSCR Associated Diseases"
+output: html_notebook
+---
+
+#Potential workflow to read csv-formatted data from https://www.targetvalidation.org
+and program the workflow to find "gastrointestinal disease" and "nervous system disease"
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r automatisches einlesen klappt leider nicht, da path of csv hidden ist}
+sox10 <- read_csv("https://www.targetvalidation.org/target/ENSG00000100146/associations/496 diseases associated with SOX10 - Open Targets Platform.csv")
+sox10
+```
+
+
+```{r unrelated check of how r can read in the current full gene table}
+variants <- read_excel("HSCR_full list.xlsx", sheet = 3)
+variants <- variants %>% drop_na(Gene_ID_uniprot) #same in old: table[!is.na(table$Gene_ID_uniprot),]  # nimmt alle werte raus, die bei uni-prot id NA sind
+#exkludiert momentan noch lncRNA, Ribozyme etc!!
+ variants[variants == "NA"] <- NA 
+variants
+
+
+#jederzeit entspannt importierbar
+# write.csv2(variants, "GenesOnly_40.csv")
+
+gene_list <- variants %>% select(Gene_ID_uniprot, Gene_name) 
+gene_list <- distinct(gene_list)
+gene_list %>% group_by(Gene_name) %>% filter(n()>1)
+```
+
+
+```{r Funktion + Loop für Associated diseases } 
+###################################################### Necessary input for each gene with downloaded csv. unfortunately has to be manually downloaded I think.
+#gene = "RET"
+#add_associated_diseases(gene)
+#gene = "SOX10"  
+
+add_associated_diseases <- function(gene, GENE) {
+      gene_csv = paste(sep = "", 'ass_dis_genes/diseases_associated_with_', gene, '.csv')
+      excel_output = paste(sep = "", 'ass_dis_genes/', gene, '.csv')
+
+GENE <- read_csv(gene_csv)
+  GENE <- GENE %>% filter(`association_score.overall` == 1)
+
+  GENE <- GENE %>% filter(grepl("gastrointestinal disease|nervous system disease", GENE$disease.efo_info.therapeutic_area.labels))
+
+#schreibt summary mit ausgewählten krankheiten --> Nicht unbedingt notwendig
+write_csv2(GENE, excel_output)
+
+associated_diseases <- GENE$disease.efo_info.label  #double arrow <<- for global assignment IF necessary
+#if associated_diseases == ""
+asdi <- str_c(associated_diseases, collapse = "| ") #sets length of character vector to one  #Can I capitalize the first letter of every vector?
+
+variants2 <- variants[variants$Gene_name == gene,] %>% mutate(`Associated_diseases` = asdi) # leider länger als notwendig, weil ich rest noch drin behalten möchte gerne
+variants <<- variants %>% filter(Gene_name != gene)
+variants <<- variants2 %>% add_row(.data = variants)
+}
+
+#loop bauen
+# HOW CAN I DEAL WITH NAs?? Message "No known associated diseases"
+
+for (i in unique(variants$Gene_name)){
+  add_associated_diseases(i)
+  #print(i)
+}
+  
+variants[variants == ""] <- "No other known associated diseases."
+```
+
+##Question 1:
+What exactly do I do with the final table of the associated diseases? Do I add them as one combined string or list to each corresponding gene? Are the scores relevant?
+
+##Question 2: HSCR2 as an alias for ENRNB e.g. is an error in their algorithm
+
+```{r Sox10 https://www.targetvalidation.org/target/ENSG00000100146/associations}
+SOX10 <- read_csv("ass_dis_genes/diseases_associated_with_SOX10.csv")
+SOX10 <- SOX10 %>% filter(`association_score.overall` == 1)
+
+SOX10 <- SOX10 %>% filter(grepl("gastrointestinal disease|nervous system disease", SOX10$disease.efo_info.therapeutic_area.labels))
+SOX10
+
+#schreibt summary mit ausgewählten krankheiten, aber trennt zahlen deutsch mit kommata
+write_csv2(SOX10, "ass_dis_genes/SOX10.csv")
+
+gene = "SOX10"
+gene_csv = paste(sep = "", 'ass_dis_genes/diseases_associated_with_', gene, '.csv')
+excel_output = paste(sep = "", 'ass_dis_genes/', gene, '.csv')
+
+
+```
+
+
+```{r Potentially convert first column into one string and add it to the final table}
+#z %>% mutate(y = ifelse(w=="a" & x==2, 9, y))
+
+## Zu string verarbeiten mit "| " als Trennzeichen und dann zu allen Rows als Associated disease hinzufügen, die die entsprechende uniprot ID vorne tragen
+
+associated_disease_finder(gene)
+associated_diseases <- SOX10$disease.efo_info.label
+
+associated_diseases
+asdi <- str_c(associated_diseases, collapse = "| ") #sets length of character vector to one  #Can I capitalize the first letter of every vector?
+
+####################################
+small <- variants %>% filter(Gene_name == "SOX10" | Gene_name == "RET")
+variants <- variants %>% filter(Gene_name == "SOX10" | Gene_name == "RET")
+####################################
+
+#small <- small %>% rows_update( tibble( Associated_diseases= "asdi"), by = "Gene_name")
+
+#small[small == gene] <- asdi
+
+# <- small %>% mutate_at(vars(matches(gene)), ~ replace(., . ==gene))
+
+#small <- small %>% filter(Gene_name == gene) %>% mutate(.data = small, `Associated_diseases` = asdi, .keep = "all")
+
+###
+small2 <- small[small$Gene_name == gene,] %>% mutate(`Associated_diseases` = asdi) # leider länger als notwendig, weil ich rest noch drin behalten möchte gerne
+# Könnte alle data frames nacheinander wieder zusammensetzen, um dann den vollen tibble zu erhalten...echt umständlich aber..
+
+small <- small %>% filter(Gene_name != gene)
+small <- small2 %>% add_row(.data = small)
+
+# ---> mutate_if ??
+ 
+is.gene <- function(gene) {
+  grepl(gene)
+}
+add_asdi_string <- function(small, asdi){
+  small$Gene_name <- asdi
+}
+small <- small %>% mutate_if(is.gene, add_asdi_string )
+
+#small <- small %>% mutate_all( ~if_else(grepl("SOX10", small$Gene_name), asdi))
+
+#small$Associated_diseases
+
+```
+
+
+```{r Find string as substring in larger string}
+hello = "hello"
+larger = "aba|hello|jdnkjfs"
+smaller = "bgkag"
+
+grepl(hello, smaller)
+
+#Doesnt run
+filter(df, !grepl("RTB",TrackingPixel))
+
+# sox10 object missing
+grepl("gastrointestinal disease", sox10$disease.efo_info.therapeutic_area.labels)
+```
+####################################################################################################################################################################################################################################################################################################################################
+
+
+
+
+```{r Is gene list complete?}
+genes <- read_excel("HSCR_full list.xlsx", sheet = 5)
+genes <- genes %>% drop_na(Gene_ID_uniprot) 
+genes <- genes %>%select(Gene_name) 
+ genes[genes == "NA"] <- NA 
+ #unique(genes)
+#genes <- unique(genes) #works the same way as far as I can tell
+genes <- distinct(genes)
+#genes <- list(genes)
+
+genes_118 <- read_excel("HSCR_full list.xlsx", sheet = 4)
+genes_118 <- genes_118 %>% select(GENES)
+genes_118 <- genes_118 %>% rename(Gene_name = GENES)
+
+#genes_list %>% group_by(Gene_name) %>% filter(n()>1)
+
+genes_full <- genes %>% add_row(.data  = genes_118)
+
+#genes_full %>% filter(Gene_name == "SLC27A4")
+
+#genes_full %>% group_by(Gene_name) %>% filter(n()>1)
+
+genes_full <- distinct(genes_full)
+#ISt hier nicht so genau wie uniprot_ID. EG IL11; Il-11
+
+#Teilmenge die nur in genes_118 (aus 118 papern) gewonnen ist und die ich noch hinzufügen muss: 127, mit einigen RNAs 
+genes_tobeadded <- genes %>% add_row(.data  = genes_full)
+genes_tobeadded <-  genes_tobeadded %>% group_by(Gene_name) %>% filter(n()==1)
+  
+
+
+```
+```{r}
+#next step : selesct gen name and uniprot Id and : distinct(uniprot_id)
+
+check_genes <- read_excel("HSCR_full list.xlsx", sheet = 5)
+```
+
